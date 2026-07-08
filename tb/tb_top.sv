@@ -1,59 +1,65 @@
 `ifndef TB_TOP_SV
 `define TB_TOP_SV
 
-`include "sram_if.sv"
-`include "sram_tests_pkg.sv"
+`timescale 1ns / 1ps
+
 `include "uvm_macros.svh"
 
 module tb_top;
-  import uvm_pkg::*;               
+  import uvm_pkg::*;
+  import sram_tests_pkg::*;
 
-  localparam CLOCK_PERIOD = 10;           
-  localparam DATA_WIDTH = 8;
-  localparam ADDR_WIDTH = 4;
-  
-  bit clk;                        
-  bit rstn;                       
+  localparam int CLOCK_PERIOD = 10;
+  localparam int ADDR_WIDTH = 13;
+  localparam int DATA_WIDTH = 32;
+  localparam int ECC_CW = 39;
+
+  bit clk;
+  bit rstn;
 
   initial begin
     clk = 0;
-    forever #(CLOCK_PERIOD/2) clk = ~clk;
+    forever #(CLOCK_PERIOD / 2) clk = ~clk;
   end
 
   initial begin
-    rstn = 0;                      
+    rstn = 0;
     #(CLOCK_PERIOD * 5);
     rstn = 1;
   end
 
-  sram_if intf(clk, rstn);
-  sram #(
-    .DATA_WIDTH(DATA_WIDTH),                
-    .ADDR_WIDTH(ADDR_WIDTH)                 
-  ) DUT (
-    .clk    (intf.clk),            // Clock input
-    .rstn   (intf.rstn),           // Active-low reset
-    .we_n   (intf.we_n),           // Write enable (active low)
-    .addr   (intf.addr),           // Address input
-    .din    (intf.din),            // Data input
-    .dout   (intf.dout)            // Data output
+  sram_if #(
+      .ADDR_WIDTH(ADDR_WIDTH),
+      .DATA_WIDTH(DATA_WIDTH),
+      .ECC_CW(ECC_CW)
+  ) intf (
+      clk,
+      rstn
   );
-	
+
+  sram_behavioral_model #(
+      .DATA_WIDTH(DATA_WIDTH),
+      .ADDR_WIDTH(ADDR_WIDTH)
+  ) DUT (
+      .clk         (intf.clk),
+      .rstn        (intf.rstn),
+      .ce_n        (intf.ce_n),
+      .we_n        (intf.we_n),
+      .addr        (intf.addr),
+      .din         (intf.din),
+      .read_latency(intf.read_latency),
+      .inj_en      (intf.inj_en),
+      .inj_addr    (intf.inj_addr),
+      .inj_mask    (intf.inj_mask),
+      .dout        (intf.dout),
+      .rvalid      (intf.rvalid),
+      .ecc_single  (intf.ecc_single),
+      .ecc_double  (intf.ecc_double)
+  );
+
   initial begin
-
-    // Increase verbosity level
-    uvm_root::get().set_report_verbosity_level_hier(UVM_FULL);
-
-    // Set up UVM configurations
-//     uvm_config_db#(int)::set(null, "*", "DATA_WIDTH", DATA_WIDTH); 
-//     uvm_config_db#(int)::set(null, "*", "ADDR_WIDTH", ADDR_WIDTH);
     uvm_config_db#(virtual sram_if)::set(null, "*", "vif", intf);
-
-    // Run the test
-//     run_test("sram_rand_seq_test");
-    run_test("sram_edge_case_test");
-//     run_test("sram_same_addr_test");
-//     run_test("sram_stress_test");
+    run_test("sram_regression_test");
   end
 endmodule
 

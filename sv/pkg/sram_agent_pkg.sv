@@ -1,12 +1,16 @@
 package sram_agent_pkg;
 
-  parameter ADDR_WIDTH = 4;
-  parameter DATA_WIDTH = 8;
+  parameter int ADDR_WIDTH = 13;  // 8192 words
+  parameter int DATA_WIDTH = 32;
+  parameter int ECC_CW = 39;
 
   import uvm_pkg::*;
-  `include "../agents/sram_packet.svh"
-  `include "../agents/sram_agent_cfg.svh"
-  `include "../agents/sram_driver.svh"
-  `include "../agents/sram_monitor.svh"
-  `include "../agents/sram_tx_agent.svh"
+  import sram_ecc_pkg::*;
+  `include "uvm_macros.svh"
+
+  `include "sram_packet.svh"
+  `include "sram_agent_cfg.svh"
+  `include "sram_driver.svh"
+  `include "sram_monitor.svh"
+  `include "sram_agent.svh"
 endpackage

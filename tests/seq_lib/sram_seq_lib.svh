@@ -1,8 +1,11 @@
 //======================================================
-// Base Sequence with Objection Handling
+// base sequence with objection handling
 //======================================================
 class sram_base_seq extends uvm_sequence #(sram_packet);
   `uvm_object_utils(sram_base_seq)
+
+  // one rep. address per coverage region
+  bit [ADDR_WIDTH-1:0] region_addr[8] = '{0, 512, 1500, 2500, 3500, 5000, 7000, 8191};
 
   function new(string name = "sram_base_seq");
     super.new(name);
@@ -10,241 +13,224 @@ class sram_base_seq extends uvm_sequence #(sram_packet);
 
   virtual task pre_body();
     uvm_phase phase = get_starting_phase();
-    if (phase != null) begin
-      phase.raise_objection(this);
-      `uvm_info(get_type_name(), "Raised objection", UVM_MEDIUM)
-    end
+    if (phase != null) phase.raise_objection(this);
   endtask
 
   virtual task post_body();
     uvm_phase phase = get_starting_phase();
-    if (phase != null) begin
-      phase.drop_objection(this);
-      `uvm_info(get_type_name(), "Dropped objection", UVM_MEDIUM)
-    end
+    if (phase != null) phase.drop_objection(this);
+  endtask
+
+  // helpers
+  task do_write(bit [ADDR_WIDTH-1:0] a, bit [DATA_WIDTH-1:0] d);
+    req = sram_packet::type_id::create("wr");
+    start_item(req);
+    if (!req.randomize() with {
+          op == WRITE;
+          addr == a;
+          din == d;
+        })
+      `uvm_error(get_type_name(), "write randomize failed")
+    finish_item(req);
+  endtask
+
+  task do_read(bit [ADDR_WIDTH-1:0] a, bit [2:0] lat, int gap = -1, bit [ECC_CW-1:0] mask = '0);
+    req = sram_packet::type_id::create("rd");
+    start_item(req);
+    if (!req.randomize() with {
+          op == READ;
+          addr == a;
+          read_latency == lat;
+          err_mask == mask;
+        })
+      `uvm_error(get_type_name(), "read randomize failed")
+    req.raw_gap = gap;
+    finish_item(req);
   endtask
 endclass
 
 
-
 //======================================================
-// Random Read/Write Sequence
+// random read/write traffic
 //======================================================
 class sram_random_seq extends sram_base_seq;
   `uvm_object_utils(sram_random_seq)
 
-  rand int num_transactions = 200;
-  rand bit we_n_weight = 0; // 0: More writes, 1: More reads
+  rand int num_transactions = 300;
 
   function new(string name = "sram_random_seq");
     super.new(name);
   endfunction
 
   task body();
-    `uvm_info(get_type_name(), $sformatf("Starting %0d random transactions", num_transactions), UVM_LOW)
-
     for (int i = 0; i < num_transactions; i++) begin
       req = sram_packet::type_id::create("req");
       start_item(req);
-
       if (!req.randomize() with {
-        if (we_n_weight) { op dist {WRITE := 2, READ := 8}; }       // More READS
-        else { op dist {WRITE := 8, READ := 2}; }                   // More WRITES
-
-        addr inside {[0: (1<<DATA_WIDTH)-1]};
-        din inside {[0: (1<<ADDR_WIDTH)-1]};
-      })
-        `uvm_error("SEQ/XTN", "Randomization failed")
-      
+            op dist {
+              WRITE := 6,
+              READ  := 4
+            };
+            read_latency inside {[1 : 4]};
+          })
+        `uvm_error(get_type_name(), "randomize failed")
       finish_item(req);
-      
-      `uvm_info("SEQ/PKT#", $sformatf("Packet #%0d: %s @ 0x%0h Data: 0x%0h", i, req.we_n ? "READ" : "WRITE", req.addr, req.din), UVM_MEDIUM)
     end
   endtask
 endclass
 
 
-
 //======================================================
-// Edge case sequence
+// data pattern sweep, write then read back each pattern
 //======================================================
-class sram_edge_cases_seq extends sram_base_seq;
-  `uvm_object_utils(sram_edge_cases_seq)
+class sram_pattern_seq extends sram_base_seq;
+  `uvm_object_utils(sram_pattern_seq)
 
-  function new(string name = "sram_edge_cases_seq");
+  function new(string name = "sram_pattern_seq");
     super.new(name);
   endfunction
 
   task body();
-    bit [ADDR_WIDTH-1:0] edge_addrs[] = {
-      0,
-      (1 << ADDR_WIDTH) - 1,
-      (1 << (ADDR_WIDTH-1)),
-      (1 << (ADDR_WIDTH-1)) - 1
+    bit [DATA_WIDTH-1:0] pats[] = '{
+        32'h0000_0000,
+        32'hFFFF_FFFF,
+        32'hAAAA_AAAA,
+        32'h5555_5555,
+        32'hF0F0_F0F0,
+        32'h0F0F_0F0F,
+        32'h0000_0001,
+        32'h1234_5678
     };
 
-    bit [DATA_WIDTH-1:0] edge_data[] = {
-      0,
-      (1 << DATA_WIDTH) - 1,
-      'hAAAA,
-      'h5555,
-      'hF0F0,
-      'h0F0F
-    };
-
-    `uvm_info(get_type_name(), "Starting edge case verification", UVM_LOW)
-    
-    // Address boundary tests with edge addresses and data patterns
-    foreach (edge_addrs[i]) begin
-      foreach (edge_data[j]) begin
-        sram_packet wr_req, rd_req;
-
-        // Create fresh transactions for each write/read pair
-        wr_req = sram_packet::type_id::create("wr_req");
-        rd_req = sram_packet::type_id::create("rd_req");
-
-        // Write transaction
-        start_item(wr_req);
-        
-        if (!wr_req.randomize() with {op == WRITE; addr == edge_addrs[i]; din == edge_data[j];}) 
-          `uvm_error(get_type_name(), "Write randomization failed")
-
-        `uvm_info("SEQ/WRITE", $sformatf("Addr: 0x%0h Data: 0x%0h", wr_req.addr, wr_req.din), UVM_MEDIUM)
-        finish_item(wr_req);
-
-        // Read transaction
-        start_item(rd_req);
-        
-        if (!rd_req.randomize() with {op == READ; addr == edge_addrs[i];})         
-          `uvm_error(get_type_name(), "Read randomization failed")
-
-        `uvm_info("SEQ/READ", $sformatf("Addr: 0x%0h", rd_req.addr), UVM_MEDIUM)
-        finish_item(rd_req);
-      end
+    foreach (pats[i]) begin
+      bit [ADDR_WIDTH-1:0] a = region_addr[i%8];
+      bit [2:0] lat = 1 + (i % 4);
+      do_write(a, pats[i]);
+      do_read(a, lat);
     end
-
-    // Rapid WE toggle test
-    // repeat (10) begin
-    //   req = sram_packet::type_id::create("req");
-    //   start_item(req);
-
-    //   if (!req.randomize() with {addr == 0; op dist {WRITE:/50, READ:/50};}) begin
-    //     `uvm_error(get_type_name(), "Randomization failed")
-    //   end
-    //   finish_item(req);
-    // end
   endtask
 endclass
 
 
-
 //======================================================
-// Stress Sequence
+// read after write hazards across gaps, regions and latencies
 //======================================================
-class sram_stress_seq extends sram_base_seq;
-  `uvm_object_utils(sram_stress_seq)
+class sram_raw_hazard_seq extends sram_base_seq;
+  `uvm_object_utils(sram_raw_hazard_seq)
 
-  function new(string name = "sram_stress_seq");
+  int gaps[] = '{0, 1, 2, 3, 4, 8, 20};
+
+  function new(string name = "sram_raw_hazard_seq");
     super.new(name);
   endfunction
 
   task body();
-    `uvm_info(get_type_name(), "Starting stress test with 100 transactions", UVM_LOW)
-
-    for (int i = 0; i < 100; i++) begin
-      req = sram_packet::type_id::create("req");
-      start_item(req);
-
-      if (!req.randomize() with {
-        we_n dist {0:/50, 1:/50};
-        addr dist {
-          0                  :/10,
-          (1<<ADDR_WIDTH)-1  :/10,
-          [1:(1<<ADDR_WIDTH)-2] :/80
-        };
-        din dist {
-          0                  :/10,
-          (1<<DATA_WIDTH)-1  :/10,
-          [1:(1<<DATA_WIDTH)-2] :/80
-        };
-      }) begin
-        `uvm_error(get_type_name(), "Randomization failed")
+    foreach (region_addr[r]) begin
+      foreach (gaps[g]) begin
+        for (int lat = 1; lat <= 4; lat++) begin
+          bit [DATA_WIDTH-1:0] d = 32'hCAFE_0000 + (r << 8) + gaps[g];
+          do_write(region_addr[r], d);
+          // intervening traffic to a scratch region to build the gap
+          repeat (gaps[g]) do_write(1024, 32'hDEAD_BEEF);
+          do_read(region_addr[r], lat[2:0], gaps[g]);
+        end
       end
-      finish_item(req);
-      
-      `uvm_info("SEQ/PKT#", $sformatf("Packet #%0d: %s @ 0x%0h Data: 0x%0h", i, req.we_n ? "READ" : "WRITE", req.addr, req.din), UVM_MEDIUM)
     end
   endtask
 endclass
 
 
+//======================================================
+// ecc single bit correction across every codeword position
+//======================================================
+class sram_ecc_seq extends sram_base_seq;
+  `uvm_object_utils(sram_ecc_seq)
+
+  function new(string name = "sram_ecc_seq");
+    super.new(name);
+  endfunction
+
+  task body();
+    bit [DATA_WIDTH-1:0] seed = 32'hA5A5_5A5A;
+    for (int pos = 0; pos < ECC_CW; pos++) begin
+      bit [ADDR_WIDTH-1:0] a = region_addr[pos%8];
+      bit [2:0] lat = 1 + (pos % 4);
+      bit [ECC_CW-1:0] mask;
+      mask = '0;
+      mask[pos] = 1'b1;  // one hot fault at this codeword position
+      do_write(a, seed ^ pos);
+      do_read(a, lat, -1, mask);  // single flipped bit, corrected on read
+    end
+  endtask
+endclass
+
 
 //======================================================
-// Same address sequence
+// ecc double bit detection, two flipped bits are uncorrectable
+//======================================================
+class sram_ecc_double_seq extends sram_base_seq;
+  `uvm_object_utils(sram_ecc_double_seq)
+
+  function new(string name = "sram_ecc_double_seq");
+    super.new(name);
+  endfunction
+
+  task body();
+    for (int i = 0; i < 16; i++) begin
+      bit [ADDR_WIDTH-1:0] a = region_addr[i%8];
+      bit [2:0] lat = 1 + (i % 4);
+      int b0 = i % ECC_CW;
+      int b1 = (i * 7 + 3) % ECC_CW;
+      bit [ECC_CW-1:0] mask;
+      if (b1 == b0) b1 = (b1 + 1) % ECC_CW;
+      mask = '0;
+      mask[b0] = 1'b1;
+      mask[b1] = 1'b1;  // two flipped bits, detected not corrected
+      do_write(a, 32'hD0D0_0000 + i);
+      do_read(a, lat, -1, mask);
+    end
+  endtask
+endclass
+
+
+//======================================================
+// read latency sweep 1..4
+//======================================================
+class sram_latency_seq extends sram_base_seq;
+  `uvm_object_utils(sram_latency_seq)
+
+  function new(string name = "sram_latency_seq");
+    super.new(name);
+  endfunction
+
+  task body();
+    for (int lat = 1; lat <= 4; lat++) begin
+      foreach (region_addr[r]) begin
+        do_write(region_addr[r], 32'h1111_0000 + r);
+        do_read(region_addr[r], lat[2:0]);
+      end
+    end
+  endtask
+endclass
+
+
+//======================================================
+// same address stress
 //======================================================
 class sram_same_addr_seq extends sram_base_seq;
   `uvm_object_utils(sram_same_addr_seq)
 
-  rand bit [ADDR_WIDTH-1:0] target_addr;
+  rand bit [ADDR_WIDTH-1:0] target_addr = 42;
 
   function new(string name = "sram_same_addr_seq");
     super.new(name);
   endfunction
 
   task body();
-    `uvm_info(get_type_name(), $sformatf("Stress testing address 0x%0h", target_addr), UVM_LOW)
-
-    // Write-read pattern
     repeat (20) begin
-      sram_packet wr_req, rd_req;
-
-      // Fresh write transaction
-      wr_req = sram_packet::type_id::create("wr_req");
-      start_item(wr_req);
-      if (!wr_req.randomize() with {
-        addr == target_addr;
-        op == WRITE;
-        din inside {[0:(1<<DATA_WIDTH)-1]};
-      }) begin
-        `uvm_error(get_type_name(), "Write randomization failed")
-      end
-      `uvm_info("SEQ/WRITE", $sformatf("Addr: 0x%0h Data: 0x%0h", 
-                wr_req.addr, wr_req.din), UVM_MEDIUM)
-      finish_item(wr_req);
-
-      // Fresh read transaction
-      rd_req = sram_packet::type_id::create("rd_req");
-      start_item(rd_req);
-      if (!rd_req.randomize() with {
-        addr == target_addr;
-        op == READ;
-      }) begin
-        `uvm_error(get_type_name(), "Read randomization failed")
-      end
-      `uvm_info("SEQ/READ", $sformatf("Addr: 0x%0h", rd_req.addr), UVM_MEDIUM)
-      finish_item(rd_req);
-    end
-
-    // Back-to-back writes
-    repeat (10) begin
-      req = sram_packet::type_id::create("req");
-      start_item(req);
-
-      if (!req.randomize() with {addr == target_addr; op == WRITE; din inside {[0:(1<<DATA_WIDTH)-1]};}) begin
-        `uvm_error(get_type_name(), "Randomization failed")
-      end
-      finish_item(req);
-    end
-
-    // Back-to-back reads
-    repeat (10) begin
-      req = sram_packet::type_id::create("req");
-      start_item(req);
-
-      if (!req.randomize() with {addr == target_addr; op == READ;}) begin
-        `uvm_error(get_type_name(), "Randomization failed")
-      end
-      finish_item(req);
+      bit [DATA_WIDTH-1:0] d = $urandom();
+      do_write(target_addr, d);
+      do_read(target_addr, 3'd2, 0);
     end
   endtask
 endclass

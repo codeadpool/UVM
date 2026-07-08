@@ -1,12 +1,11 @@
-`include "sram_seqs_pkg.sv"
-
 package sram_env_pkg;
 
   import uvm_pkg::*;
   import sram_agent_pkg::*;
   import sram_seqs_pkg::*;
+  `include "uvm_macros.svh"
 
-  `include "../top/sram_coverage.svh"
-  `include "../top/sram_scoreboard.svh"
-  `include "../top/sram_env.svh"
+  `include "sram_coverage.svh"
+  `include "sram_scoreboard.svh"
+  `include "sram_env.svh"
 endpackage
