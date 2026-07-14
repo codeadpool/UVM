@@ -36,7 +36,7 @@ the covergroup prints an overall number and a per point breakdown in
 ## timing
 
 model delays are the nominal pvt 0.7v 25c corner from
-`srambank_128x256_6t.lib`:
+`asap7_srambank_excerpt.lib`:
 
 - setup  ~48 ps
 - hold   ~6.4 ps

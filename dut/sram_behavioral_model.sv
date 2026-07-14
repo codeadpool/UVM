@@ -5,7 +5,7 @@
 
 // single port 32kB sram behavioral model
 // 8192 x 32 with secded ecc, runtime read latency and liberty derived delays
-// timing nominals taken from srambank_128x256_6t.lib pvt 0.7v 25c
+// timing nominals taken from asap7_srambank_excerpt.lib pvt 0.7v 25c
 module sram_behavioral_model
   import sram_ecc_pkg::*;
 #(

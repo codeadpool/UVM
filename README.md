@@ -14,7 +14,7 @@ The project encompasses:
 
 - **DUT**: parameterized single-port SRAM behavioral model (`dut/sram_behavioral_model.sv`),
   8192 x 32 (32KB), SECDED ECC, runtime-configurable read latency, and `specify`-block
-  timing delays taken from the 28nm 0.7V/25°C corner of `docs/srambank_128x256_6t.lib`
+  timing delays taken from the 7nm 0.7V/25°C corner of `docs/asap7_srambank_excerpt.lib`
   (setup ~48ps, hold ~6.4ps, clk→dataout ~134ps). This enables timing-aware RTL
   simulation before a gate-level netlist is available.
 - **Stimulus**: constrained-random plus directed sequences for RAW hazards, ECC
@@ -29,7 +29,7 @@ The project encompasses:
 ```
 docs/
   coverage_plan.md            coverage model + timing notes
-  srambank_128x256_6t.lib     28nm Liberty characterization
+  asap7_srambank_excerpt.lib  ASAP7 7nm Liberty characterization
   openram-sram-uarch.png      microarchitecture diagram
 dut/
   sram_ecc_pkg.sv             SECDED (39,32) encode/decode
